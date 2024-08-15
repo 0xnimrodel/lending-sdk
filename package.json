@@ -25,7 +25,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@wagmi/core": "^2.13.4",
     "viem": "^2.19.4"
   },
   "devDependencies": {
@@ -36,7 +35,6 @@
     "typescript": "^5.5.4"
   },
   "peerDependencies": {
-    "@wagmi/core": "^2.13.4",
     "viem": "^2.19.4"
   },
   "engines": {

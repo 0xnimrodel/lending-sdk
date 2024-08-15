@@ -1,30 +1,29 @@
-import {
-  multicall,
-  getPublicClient,
-  GetPublicClientReturnType,
-} from '@wagmi/core'
-import { Abi, Address } from 'viem'
+import { Abi, Address, createPublicClient, http } from 'viem'
 import { comptrollerAddress } from '../config/network.js'
-import { wagmiConfig } from '../config/wagmi.js'
 import { comptrollerABI, cTokenABI, oracleABI } from '../abis/index.js'
+import { multicall } from 'viem/actions'
+import { linea } from 'viem/chains'
 
 export class Lending {
   marketAddresses: Address[] = []
   markets: Market[] = []
   oracleAddress: Address | null = null
   underlyingAddresses: Map<Address, Address> = new Map()
-  publicClient: GetPublicClientReturnType
+  client: any
   userAddress: Address | null = null
   enteredMarkets: Set<Address> = new Set()
 
   constructor() {
-    this.publicClient = getPublicClient(wagmiConfig)
+    this.client = createPublicClient({
+      chain: linea,
+      transport: http('https://rpc.linea.build'),
+    })
   }
 
   async initialize(userAddress: Address) {
     this.userAddress = userAddress
     const [marketsResult, oracleResult, enteredMarketsResult] = await multicall(
-      wagmiConfig,
+      this.client,
       {
         contracts: [
           {
@@ -83,7 +82,7 @@ export class Lending {
       functionName: 'underlying',
     }))
 
-    const results = await multicall(wagmiConfig, { contracts: underlyingCalls })
+    const results = await multicall(this.client, { contracts: underlyingCalls })
 
     results.forEach((result, index) => {
       if (result.status === 'success') {
@@ -117,7 +116,7 @@ export class Lending {
       },
     ])
 
-    const results = await multicall(wagmiConfig, { contracts: calls })
+    const results = await multicall(this.client, { contracts: calls })
 
     this.markets = this.marketAddresses
       .map((marketAddress, index) => {

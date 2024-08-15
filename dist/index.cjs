@@ -25,20 +25,10 @@ __export(src_exports, {
 module.exports = __toCommonJS(src_exports);
 
 // src/classes/lending.ts
-var import_core2 = require("@wagmi/core");
+var import_viem = require("viem");
 
 // src/config/network.ts
 var comptrollerAddress = "0x1b4d3b0421dDc1eB216D230Bc01527422Fb93103";
-
-// src/config/wagmi.ts
-var import_core = require("@wagmi/core");
-var import_chains = require("@wagmi/core/chains");
-var wagmiConfig = (0, import_core.createConfig)({
-  chains: [import_chains.linea],
-  transports: {
-    [import_chains.linea.id]: (0, import_core.http)("https://rpc.linea.build")
-  }
-});
 
 // src/abis/c-token.json
 var c_token_default = [
@@ -3544,6 +3534,8 @@ var comptroller_default = [
 ];
 
 // src/classes/lending.ts
+var import_actions = require("viem/actions");
+var import_chains = require("viem/chains");
 var Lending = class {
   constructor() {
     this.marketAddresses = [];
@@ -3552,12 +3544,15 @@ var Lending = class {
     this.underlyingAddresses = /* @__PURE__ */ new Map();
     this.userAddress = null;
     this.enteredMarkets = /* @__PURE__ */ new Set();
-    this.publicClient = (0, import_core2.getPublicClient)(wagmiConfig);
+    this.client = (0, import_viem.createPublicClient)({
+      chain: import_chains.linea,
+      transport: (0, import_viem.http)("https://rpc.linea.build")
+    });
   }
   async initialize(userAddress) {
     this.userAddress = userAddress;
-    const [marketsResult, oracleResult, enteredMarketsResult] = await (0, import_core2.multicall)(
-      wagmiConfig,
+    const [marketsResult, oracleResult, enteredMarketsResult] = await (0, import_actions.multicall)(
+      this.client,
       {
         contracts: [
           {
@@ -3605,7 +3600,7 @@ var Lending = class {
       abi: c_token_default,
       functionName: "underlying"
     }));
-    const results = await (0, import_core2.multicall)(wagmiConfig, { contracts: underlyingCalls });
+    const results = await (0, import_actions.multicall)(this.client, { contracts: underlyingCalls });
     results.forEach((result, index) => {
       if (result.status === "success") {
         this.underlyingAddresses.set(
@@ -3636,7 +3631,7 @@ var Lending = class {
         args: [market]
       }
     ]);
-    const results = await (0, import_core2.multicall)(wagmiConfig, { contracts: calls });
+    const results = await (0, import_actions.multicall)(this.client, { contracts: calls });
     this.markets = this.marketAddresses.map((marketAddress, index) => {
       const snapshotResult = results[index * 3];
       const marketResult = results[index * 3 + 1];

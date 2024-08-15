@@ -1,21 +1,8 @@
 // src/classes/lending.ts
-import {
-  multicall,
-  getPublicClient
-} from "@wagmi/core";
+import { createPublicClient, http } from "viem";
 
 // src/config/network.ts
 var comptrollerAddress = "0x1b4d3b0421dDc1eB216D230Bc01527422Fb93103";
-
-// src/config/wagmi.ts
-import { http, createConfig } from "@wagmi/core";
-import { linea } from "@wagmi/core/chains";
-var wagmiConfig = createConfig({
-  chains: [linea],
-  transports: {
-    [linea.id]: http("https://rpc.linea.build")
-  }
-});
 
 // src/abis/c-token.json
 var c_token_default = [
@@ -3521,6 +3508,8 @@ var comptroller_default = [
 ];
 
 // src/classes/lending.ts
+import { multicall } from "viem/actions";
+import { linea } from "viem/chains";
 var Lending = class {
   constructor() {
     this.marketAddresses = [];
@@ -3529,12 +3518,15 @@ var Lending = class {
     this.underlyingAddresses = /* @__PURE__ */ new Map();
     this.userAddress = null;
     this.enteredMarkets = /* @__PURE__ */ new Set();
-    this.publicClient = getPublicClient(wagmiConfig);
+    this.client = createPublicClient({
+      chain: linea,
+      transport: http("https://rpc.linea.build")
+    });
   }
   async initialize(userAddress) {
     this.userAddress = userAddress;
     const [marketsResult, oracleResult, enteredMarketsResult] = await multicall(
-      wagmiConfig,
+      this.client,
       {
         contracts: [
           {
@@ -3582,7 +3574,7 @@ var Lending = class {
       abi: c_token_default,
       functionName: "underlying"
     }));
-    const results = await multicall(wagmiConfig, { contracts: underlyingCalls });
+    const results = await multicall(this.client, { contracts: underlyingCalls });
     results.forEach((result, index) => {
       if (result.status === "success") {
         this.underlyingAddresses.set(
@@ -3613,7 +3605,7 @@ var Lending = class {
         args: [market]
       }
     ]);
-    const results = await multicall(wagmiConfig, { contracts: calls });
+    const results = await multicall(this.client, { contracts: calls });
     this.markets = this.marketAddresses.map((marketAddress, index) => {
       const snapshotResult = results[index * 3];
       const marketResult = results[index * 3 + 1];

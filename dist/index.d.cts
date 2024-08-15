@@ -1,4 +1,3 @@
-import { GetPublicClientReturnType } from '@wagmi/core';
 import { Address } from 'viem';
 
 declare class Lending {
@@ -6,7 +5,7 @@ declare class Lending {
     markets: Market[];
     oracleAddress: Address | null;
     underlyingAddresses: Map<Address, Address>;
-    publicClient: GetPublicClientReturnType;
+    client: any;
     userAddress: Address | null;
     enteredMarkets: Set<Address>;
     constructor();
