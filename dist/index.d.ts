@@ -1,22 +1,22 @@
-import { Address } from 'viem';
+import { ethers } from 'ethers';
 
 declare class Lending {
-    marketAddresses: Address[];
+    marketAddresses: string[];
     markets: Market[];
-    oracleAddress: Address | null;
-    underlyingAddresses: Map<Address, Address>;
-    client: any;
-    userAddress: Address | null;
-    enteredMarkets: Set<Address>;
+    oracleAddress: string | null;
+    underlyingAddresses: Map<string, string>;
+    userAddress: string | null;
+    enteredMarkets: Set<string>;
+    provider: ethers.JsonRpcProvider;
     constructor();
-    initialize(userAddress: Address): Promise<void>;
+    initialize(userAddress: string): Promise<void>;
     private fetchUnderlyingAddresses;
     private fetchMarketData;
     private calculateBorrowLimitUsed;
     getBorrowLimitUsedPercentage(): number;
 }
 interface Market {
-    address: Address;
+    address: string;
     cTokenBalance: bigint;
     supplyBalance: bigint;
     borrowBalance: bigint;

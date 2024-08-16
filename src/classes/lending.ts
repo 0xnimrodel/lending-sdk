@@ -1,54 +1,38 @@
-import { Abi, Address, createPublicClient, http } from 'viem'
-import { comptrollerAddress } from '../config/network.js'
+import { comptrollerAddress } from '../config/constants.js'
 import { comptrollerABI, cTokenABI, oracleABI } from '../abis/index.js'
-import { multicall } from 'viem/actions'
-import { linea } from 'viem/chains'
+import { ethers } from 'ethers'
 
 export class Lending {
-  marketAddresses: Address[] = []
+  marketAddresses: string[] = []
   markets: Market[] = []
-  oracleAddress: Address | null = null
-  underlyingAddresses: Map<Address, Address> = new Map()
-  client: any
-  userAddress: Address | null = null
-  enteredMarkets: Set<Address> = new Set()
+  oracleAddress: string | null = null
+  underlyingAddresses: Map<string, string> = new Map()
+  userAddress: string | null = null
+  enteredMarkets: Set<string> = new Set()
+  provider: ethers.JsonRpcProvider
 
   constructor() {
-    this.client = createPublicClient({
-      chain: linea,
-      transport: http('https://rpc.linea.build'),
-    })
+    this.provider = new ethers.JsonRpcProvider('https://rpc.linea.build')
   }
 
-  async initialize(userAddress: Address) {
+  async initialize(userAddress: string) {
     this.userAddress = userAddress
-    const [marketsResult, oracleResult, enteredMarketsResult] = await multicall(
-      this.client,
-      {
-        contracts: [
-          {
-            address: comptrollerAddress as Address,
-            abi: comptrollerABI as Abi,
-            functionName: 'getAllMarkets',
-          },
-          {
-            address: comptrollerAddress as Address,
-            abi: comptrollerABI as Abi,
-            functionName: 'oracle',
-          },
-          {
-            address: comptrollerAddress as Address,
-            abi: comptrollerABI as Abi,
-            functionName: 'getAssetsIn',
-            args: [userAddress],
-          },
-        ],
-      }
+    const comptroller = new ethers.Contract(
+      comptrollerAddress,
+      comptrollerABI,
+      this.provider
     )
 
-    const marketAddresses = marketsResult.result as Address[]
-    const oracleAddress = oracleResult.result as Address
-    const enteredMarkets = new Set(enteredMarketsResult.result as Address[])
+    const [marketAddressesResult, oracleAddressResult, enteredMarketsResult] =
+      await Promise.all([
+        comptroller.getAllMarkets(),
+        comptroller.oracle(),
+        comptroller.getAssetsIn(userAddress),
+      ])
+
+    const marketAddresses = marketAddressesResult as string[]
+    const oracleAddress = oracleAddressResult as string
+    const enteredMarkets = new Set(enteredMarketsResult as string[])
 
     const marketsChanged =
       marketAddresses.length !== this.marketAddresses.length ||
@@ -76,85 +60,101 @@ export class Lending {
   }
 
   private async fetchUnderlyingAddresses() {
-    const underlyingCalls = this.marketAddresses.map((market) => ({
-      address: market,
-      abi: cTokenABI as Abi,
-      functionName: 'underlying',
-    }))
+    try {
+      const cTokenInterface = new ethers.Interface(cTokenABI)
 
-    const results = await multicall(this.client, { contracts: underlyingCalls })
-
-    results.forEach((result, index) => {
-      if (result.status === 'success') {
-        this.underlyingAddresses.set(
-          this.marketAddresses[index],
-          result.result as Address
-        )
-      }
-    })
-  }
-
-  private async fetchMarketData(userAddress: Address) {
-    const calls = this.marketAddresses.flatMap((market) => [
-      {
-        address: market,
-        abi: cTokenABI as Abi,
-        functionName: 'getAccountSnapshot',
-        args: [userAddress],
-      },
-      {
-        address: comptrollerAddress as Address,
-        abi: comptrollerABI as Abi,
-        functionName: 'markets',
-        args: [market],
-      },
-      {
-        address: this.oracleAddress!,
-        abi: oracleABI as Abi,
-        functionName: 'getUnderlyingPrice',
-        args: [market],
-      },
-    ])
-
-    const results = await multicall(this.client, { contracts: calls })
-
-    this.markets = this.marketAddresses
-      .map((marketAddress, index) => {
-        const snapshotResult = results[index * 3]
-        const marketResult = results[index * 3 + 1]
-        const priceResult = results[index * 3 + 2]
-
-        if (
-          snapshotResult.status === 'success' &&
-          marketResult.status === 'success' &&
-          priceResult.status === 'success'
-        ) {
-          const [, cTokenBalance, borrowBalance, exchangeRate] =
-            snapshotResult.result as bigint[]
-          const [, collateralFactorMantissa] = marketResult.result as [
-            boolean,
-            bigint,
-            boolean
-          ]
-
-          const price = priceResult.result as bigint
-
-          const supplyBalance = (cTokenBalance * exchangeRate) / BigInt(10e18)
-
-          return {
-            address: marketAddress,
-            cTokenBalance,
-            supplyBalance,
-            borrowBalance,
-            exchangeRate,
-            collateralFactor: collateralFactorMantissa,
-            price,
-            isCollateral: this.enteredMarkets.has(marketAddress),
+      const underlyingPromises = this.marketAddresses.map(
+        async (marketAddress) => {
+          const cTokenContract = new ethers.Contract(
+            marketAddress,
+            cTokenInterface,
+            this.provider
+          )
+          try {
+            const underlying = await cTokenContract.underlying()
+            return { marketAddress, underlying }
+          } catch (error) {
+            return { marketAddress, underlying: null }
           }
         }
-        return null
+      )
+
+      const results = await Promise.all(underlyingPromises)
+
+      results.forEach(({ marketAddress, underlying }) => {
+        if (underlying) {
+          this.underlyingAddresses.set(marketAddress, underlying)
+        }
       })
-      .filter((market): market is Market => market !== null)
+    } catch (error) {
+      throw error
+    }
+  }
+
+  private async fetchMarketData(userAddress: string) {
+    try {
+      const cTokenInterface = new ethers.Interface(cTokenABI)
+      const comptrollerInterface = new ethers.Interface(comptrollerABI)
+      const oracleInterface = new ethers.Interface(oracleABI)
+
+      const marketDataPromises = this.marketAddresses.map(
+        async (marketAddress) => {
+          const cTokenContract = new ethers.Contract(
+            marketAddress,
+            cTokenInterface,
+            this.provider
+          )
+          const comptrollerContract = new ethers.Contract(
+            comptrollerAddress,
+            comptrollerInterface,
+            this.provider
+          )
+          const oracleContract = new ethers.Contract(
+            this.oracleAddress!,
+            oracleInterface,
+            this.provider
+          )
+
+          try {
+            const [accountSnapshot, markets, underlyingPrice] =
+              await Promise.all([
+                cTokenContract.getAccountSnapshot(userAddress),
+                comptrollerContract.markets(marketAddress),
+                oracleContract.getUnderlyingPrice(marketAddress),
+              ])
+
+            const [, cTokenBalance, borrowBalance, exchangeRate] =
+              accountSnapshot
+            const [, collateralFactorMantissa] = markets
+            const price = underlyingPrice
+
+            const supplyBalance =
+              (BigInt(cTokenBalance) * BigInt(exchangeRate)) /
+              ethers.parseEther('1')
+
+            return {
+              address: marketAddress,
+              cTokenBalance,
+              supplyBalance,
+              borrowBalance,
+              exchangeRate,
+              collateralFactor: collateralFactorMantissa,
+              price,
+              isCollateral: this.enteredMarkets.has(marketAddress),
+            }
+          } catch (error) {
+            return null
+          }
+        }
+      )
+
+      const results = await Promise.all(marketDataPromises)
+      this.markets = results.filter(
+        (market): market is Market => market !== null
+      )
+    } catch (error) {
+      throw error
+    }
   }
 
   private calculateBorrowLimitUsed(): bigint {
@@ -186,12 +186,12 @@ export class Lending {
 
   getBorrowLimitUsedPercentage(): number {
     const borrowLimitUsedScaled = this.calculateBorrowLimitUsed()
-    return Number(borrowLimitUsedScaled) / 100000
+    return Number(borrowLimitUsedScaled) / 10000
   }
 }
 
 export interface Market {
-  address: Address
+  address: string
   cTokenBalance: bigint
   supplyBalance: bigint
   borrowBalance: bigint

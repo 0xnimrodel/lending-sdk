@@ -1,31 +1,18 @@
 {
-  "name": "lending-sdk",
+  "name": "@0xnimrodel/test-sdk",
   "version": "1.0.0",
-  "description": "A SDK for interacting with lending protocols",
+  "description": "test",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
-  "keywords": [
-    "lending",
-    "defi",
-    "ethereum"
-  ],
-  "author": "0xnimrodel",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/0xnimrodel/lending-sdk.git"
-  },
-  "bugs": {
-    "url": "https://github.com/0xnimrodel/lending-sdk/issues"
-  },
   "scripts": {
     "test": "tsx src/test.ts",
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "viem": "^2.19.4"
+    "ethers": "^6.13.2"
   },
   "devDependencies": {
     "@types/node": "^22.3.0",
@@ -33,9 +20,6 @@
     "tsup": "^8.2.4",
     "tsx": "^4.17.0",
     "typescript": "^5.5.4"
-  },
-  "peerDependencies": {
-    "viem": "^2.19.4"
   },
   "engines": {
     "node": ">=20.13.1"
