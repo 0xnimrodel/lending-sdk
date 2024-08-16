@@ -1,4 +1,4 @@
-// src/config/network.ts
+// src/config/constants.ts
 var comptrollerAddress = "0x1b4d3b0421dDc1eB216D230Bc01527422Fb93103";
 
 // src/abis/c-token.json
@@ -3512,7 +3512,6 @@ var Lending = class {
     this.markets = [];
     this.oracleAddress = null;
     this.underlyingAddresses = /* @__PURE__ */ new Map();
-    // client: any
     this.userAddress = null;
     this.enteredMarkets = /* @__PURE__ */ new Set();
     this.provider = new ethers.JsonRpcProvider("https://rpc.linea.build");
@@ -3550,82 +3549,87 @@ var Lending = class {
     await this.fetchMarketData(userAddress);
   }
   async fetchUnderlyingAddresses() {
-    const multicallContract = new ethers.Contract(
-      "0xMulticallContractAddress",
-      ["function aggregate((address,bytes)[]) view returns (uint256, bytes[])"],
-      this.provider
-    );
-    const calls = this.marketAddresses.map((market) => ({
-      target: market,
-      callData: new ethers.Interface(c_token_default).encodeFunctionData(
-        "underlying"
-      )
-    }));
-    const [, results] = await multicallContract.aggregate.staticCall(calls);
-    results.forEach((result, index) => {
-      const underlying = ethers.AbiCoder.defaultAbiCoder().decode(
-        ["address"],
-        result
-      )[0];
-      this.underlyingAddresses.set(this.marketAddresses[index], underlying);
-    });
+    try {
+      const cTokenInterface = new ethers.Interface(c_token_default);
+      const underlyingPromises = this.marketAddresses.map(
+        async (marketAddress) => {
+          const cTokenContract = new ethers.Contract(
+            marketAddress,
+            cTokenInterface,
+            this.provider
+          );
+          try {
+            const underlying = await cTokenContract.underlying();
+            return { marketAddress, underlying };
+          } catch (error) {
+            return { marketAddress, underlying: null };
+          }
+        }
+      );
+      const results = await Promise.all(underlyingPromises);
+      results.forEach(({ marketAddress, underlying }) => {
+        if (underlying) {
+          this.underlyingAddresses.set(marketAddress, underlying);
+        }
+      });
+    } catch (error) {
+      throw error;
+    }
   }
   async fetchMarketData(userAddress) {
-    const multicallContract = new ethers.Contract(
-      // Replace with your deployed multicall contract address
-      "0xMulticallContractAddress",
-      ["function aggregate((address,bytes)[]) view returns (uint256, bytes[])"],
-      this.provider
-    );
-    const calls = this.marketAddresses.flatMap((market) => [
-      {
-        target: market,
-        callData: new ethers.Interface(c_token_default).encodeFunctionData(
-          "getAccountSnapshot",
-          [userAddress]
-        )
-      },
-      {
-        target: comptrollerAddress,
-        callData: new ethers.Interface(comptroller_default).encodeFunctionData(
-          "markets",
-          [market]
-        )
-      },
-      {
-        target: this.oracleAddress,
-        callData: new ethers.Interface(oracle_default).encodeFunctionData(
-          "getUnderlyingPrice",
-          [market]
-        )
-      }
-    ]);
-    const [, results] = await multicallContract.aggregate.staticCall(calls);
-    this.markets = this.marketAddresses.map((marketAddress, index) => {
-      const [, cTokenBalance, borrowBalance, exchangeRate] = ethers.AbiCoder.defaultAbiCoder().decode(
-        ["uint256", "uint256", "uint256", "uint256"],
-        results[index * 3]
+    try {
+      const cTokenInterface = new ethers.Interface(c_token_default);
+      const comptrollerInterface = new ethers.Interface(comptroller_default);
+      const oracleInterface = new ethers.Interface(oracle_default);
+      const marketDataPromises = this.marketAddresses.map(
+        async (marketAddress) => {
+          const cTokenContract = new ethers.Contract(
+            marketAddress,
+            cTokenInterface,
+            this.provider
+          );
+          const comptrollerContract = new ethers.Contract(
+            comptrollerAddress,
+            comptrollerInterface,
+            this.provider
+          );
+          const oracleContract = new ethers.Contract(
+            this.oracleAddress,
+            oracleInterface,
+            this.provider
+          );
+          try {
+            const [accountSnapshot, markets, underlyingPrice] = await Promise.all([
+              cTokenContract.getAccountSnapshot(userAddress),
+              comptrollerContract.markets(marketAddress),
+              oracleContract.getUnderlyingPrice(marketAddress)
+            ]);
+            const [, cTokenBalance, borrowBalance, exchangeRate] = accountSnapshot;
+            const [, collateralFactorMantissa] = markets;
+            const price = underlyingPrice;
+            const supplyBalance = BigInt(cTokenBalance) * BigInt(exchangeRate) / ethers.parseEther("1");
+            return {
+              address: marketAddress,
+              cTokenBalance,
+              supplyBalance,
+              borrowBalance,
+              exchangeRate,
+              collateralFactor: collateralFactorMantissa,
+              price,
+              isCollateral: this.enteredMarkets.has(marketAddress)
+            };
+          } catch (error) {
+            return null;
+          }
+        }
       );
-      const [, collateralFactorMantissa] = ethers.AbiCoder.defaultAbiCoder().decode(
-        ["bool", "uint256", "bool"],
-        results[index * 3 + 1]
+      const results = await Promise.all(marketDataPromises);
+      this.markets = results.filter(
+        (market) => market !== null
       );
-      const [price] = ethers.AbiCoder.defaultAbiCoder().decode(
-        ["uint256"],
-        results[index * 3 + 2]
-      );
-      const supplyBalance = BigInt(cTokenBalance) * exchangeRate / ethers.parseEther("1");
-      return {
-        address: marketAddress,
-        cTokenBalance,
-        supplyBalance,
-        borrowBalance,
-        exchangeRate,
-        collateralFactor: collateralFactorMantissa,
-        price,
-        isCollateral: this.enteredMarkets.has(marketAddress)
-      };
-    });
+    } catch (error) {
+      throw error;
+    }
   }
   calculateBorrowLimitUsed() {
     let totalBorrowLimit = BigInt(0);
@@ -3647,7 +3651,7 @@ var Lending = class {
   }
   getBorrowLimitUsedPercentage() {
     const borrowLimitUsedScaled = this.calculateBorrowLimitUsed();
-    return Number(borrowLimitUsedScaled) / 1e5;
+    return Number(borrowLimitUsedScaled) / 1e4;
   }
 };
 export {
