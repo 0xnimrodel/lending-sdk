@@ -2,8 +2,8 @@ import { Address } from 'viem'
 
 declare module 'lending-sdk' {
   export class Lending {
-    constructor()
-    initialize(userAddress: Address): Promise<void>
+    constructor(userAddress: Address)
+    initialize(): Promise<void>
     getBorrowLimitUsedPercentage(): number
   }
 
